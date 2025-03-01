@@ -1,0 +1,172 @@
+# gitlabctl
+
+
+version: '3'
+
+services:
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    restart: always
+    hostname: 'git.sourcewg.online'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://yourdomain.com'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+    volumes:
+      - './gitlab/config:/etc/gitlab'
+      - './gitlab/logs:/var/log/gitlab'
+      - './gitlab/data:/var/opt/gitlab'
+    ports:
+      - "127.0.0.1:8929:80"
+
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name git.sourcewg.online;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name yourdomain.com;
+
+    ssl_certificate /etc/letsencrypt/live/yourdoamin.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/yourdomain.com/privkey.pem;
+
+    location / {
+        proxy_pass http://127.0.0.1:8929;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 50M;
+    }
+}
+
+
+# docker exec -it bash
+grep 'Password:' /etc/gitlab/initial_root_password
+
+
+
+
+# V2 runner engaged
+
+
+version: '3'
+
+services:
+  gitlab:
+    image: 'gitlab/gitlab-ce:latest'
+    restart: always
+    hostname: 'yourdomain.com'
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'https://yourdomain.com'
+        nginx['listen_port'] = 80
+        nginx['listen_https'] = false
+
+        # Добавляем только эту строку для runner
+        gitlab_rails['internal_api_url'] = 'http://gitlab'
+
+        # Настройки почты
+        gitlab_rails['smtp_enable'] = true
+        gitlab_rails['smtp_address'] = "smtp.gmail.com"
+        gitlab_rails['smtp_port'] = 587
+        gitlab_rails['smtp_user_name'] = "${GITLAB_SMTP_USER}"
+        gitlab_rails['smtp_password'] = "${GITLAB_SMTP_PASSWORD}"
+        gitlab_rails['smtp_domain'] = "smtp.gmail.com"
+        gitlab_rails['smtp_authentication'] = "login"
+        gitlab_rails['smtp_enable_starttls_auto'] = true
+        gitlab_rails['smtp_tls'] = false
+        gitlab_rails['gitlab_email_from'] = 'yourmail@gmail.com'
+
+        # Дополнительные настройки безопасности
+        gitlab_rails['gitlab_email_enabled'] = true
+        gitlab_rails['gitlab_email_display_name'] = 'GitLab'
+    volumes:
+      - './gitlab/config:/etc/gitlab'
+      - './gitlab/logs:/var/log/gitlab'
+      - './gitlab/data:/var/opt/gitlab'
+    ports:
+      - "127.0.0.1:8929:80"
+
+# Добавляем runner
+  gitlab-runner:
+    image: 'gitlab/gitlab-runner:latest'
+    restart: always
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - './gitlab-runner:/etc/gitlab-runner'
+    networks:
+      - default
+    depends_on:
+      - gitlab
+
+networks:
+  default:
+    name: gitlab_network
+
+
+
+# ./gitlab-runner/config.toml
+concurrent = 1
+check_interval = 0
+connection_max_age = "15m0s"
+shutdown_timeout = 0
+
+[session_server]
+  session_timeout = 1800
+
+[[runners]]
+  name = "docker-runner"
+  url = "http://gitlab"
+  id = 1
+  token = "maketoken"
+  token_obtained_at = 2025-02-26T22:32:08Z
+  token_expires_at = 0001-01-01T00:00:00Z
+  executor = "docker"
+  [runners.cache]
+    MaxUploadedArchiveSize = 0
+    [runners.cache.s3]
+    [runners.cache.gcs]
+    [runners.cache.azure]
+  [runners.docker]
+    tls_verify = false
+    image = "alpine:latest"
+    privileged = false
+    disable_entrypoint_overwrite = false
+    oom_kill_disable = false
+    disable_cache = false
+    volumes = ["/cache"]
+    network_mode = "gitlab_default"
+    shm_size = 0
+    network_mtu = 0
+
+[[runners]]
+  name = "docker-runner"
+  url = "http://gitlab"
+  id = 1
+  token = "maketoken"
+  token_obtained_at = 2025-02-26T22:37:02Z
+  token_expires_at = 0001-01-01T00:00:00Z
+  executor = "docker"
+  [runners.cache]
+    MaxUploadedArchiveSize = 0
+    [runners.cache.s3]
+    [runners.cache.gcs]
+    [runners.cache.azure]
+  [runners.docker]
+    tls_verify = false
+    image = "alpine:latest"
+    privileged = false
+    disable_entrypoint_overwrite = false
+    oom_kill_disable = false
+    disable_cache = false
+    volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
+    network_mode = "host"
+    shm_size = 0
+    network_mtu = 0
